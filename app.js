@@ -1,90 +1,91 @@
-// Your specific Google Sheet ID
-const SHEET_ID = "INSERT_YOUR_SHEET_ID_HERE";
-const SHEET_NAME = "Batteries";
+// Google Apps Script for ESP32 Battery Data Logger
+// Deploy this as a Web App to receive data from your ESP32
 
-// Main function that handles POST requests from ESP32
 function doPost(e) {
   try {
-    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
-    let sheet = spreadsheet.getSheetByName(SHEET_NAME);
+    // Get the active spreadsheet (or specify by ID)
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
     
-    // Create sheet if it doesn't exist
-    if (!sheet) {
-      sheet = spreadsheet.insertSheet(SHEET_NAME);
-    }
+    // If you want to use a specific sheet, uncomment and modify:
+    // var sheet = SpreadsheetApp.openById('YOUR_SHEET_ID').getSheetByName('Sheet1');
     
-    // Parse the data sent from ESP32
-    const data = JSON.parse(e.postData.contents);
+    // Parse the incoming JSON data from ESP32
+    var data = JSON.parse(e.postData.contents);
     
-    // Initialize sheet with headers if empty
+    // Extract battery data
+    var batteryUUID = data.battery_uuid || '';
+    var batteryUsage = data.battery_usage || '';
+    var batteryUsageCount = data.battery_usage_count || 0;
+    var totalTimeUsed = data.total_time_used || 0;
+    var totalPercentageUsed = data.total_percentage_used || 0;
+    var timestamp = new Date();
+    
+    // Add headers if this is the first row
     if (sheet.getLastRow() === 0) {
-      const headers = ["Battery Name", "NFC Tag ID", "Times Used", "Total Time (seconds)", "Total Time (formatted)", "Last Updated"];
-      sheet.appendRow(headers);
+      sheet.appendRow([
+        'Timestamp',
+        'Battery UUID',
+        'Battery Usage',
+        'Battery Usage Count',
+        'Total Time Used',
+        'Total Percentage Used'
+      ]);
     }
     
-    // Find if this battery already exists
-    const range = sheet.getDataRange();
-    const values = range.getValues();
-    let foundRow = -1;
+    // Check if this battery UUID already exists
+    var dataRange = sheet.getDataRange();
+    var values = dataRange.getValues();
+    var batteryFound = false;
+    var rowToUpdate = -1;
     
-    for (let i = 1; i < values.length; i++) {
-      if (values[i][0] === data.name) {
-        foundRow = i + 1;  // Google Sheets uses 1-based indexing
+    // Search for existing battery UUID (skip header row)
+    for (var i = 1; i < values.length; i++) {
+      if (values[i][1] === batteryUUID) {  // Column B (index 1) is Battery UUID
+        batteryFound = true;
+        rowToUpdate = i + 1;  // +1 because sheet rows are 1-indexed
         break;
       }
     }
     
-    const timestamp = new Date().toLocaleString();
-    
-    if (foundRow > 0) {
-      // Update existing battery
-      sheet.getRange(foundRow, 1, 1, 6).setValues([[
-        data.name,
-        data.uid,
-        data.usageCount,
-        data.totalTime,
-        data.totalTimeFormatted,
-        timestamp
-      ]]);
+    if (batteryFound) {
+      // Update existing row with new data
+      sheet.getRange(rowToUpdate, 1).setValue(timestamp);
+      sheet.getRange(rowToUpdate, 3).setValue(batteryUsage);
+      sheet.getRange(rowToUpdate, 4).setValue(batteryUsageCount);
+      sheet.getRange(rowToUpdate, 5).setValue(totalTimeUsed);
+      sheet.getRange(rowToUpdate, 6).setValue(totalPercentageUsed);
     } else {
-      // Add new battery
+      // Append new battery data
       sheet.appendRow([
-        data.name,
-        data.uid,
-        data.usageCount,
-        data.totalTime,
-        data.totalTimeFormatted,
-        timestamp
+        timestamp,
+        batteryUUID,
+        batteryUsage,
+        batteryUsageCount,
+        totalTimeUsed,
+        totalPercentageUsed
       ]);
     }
     
+    // Return success response
     return ContentService.createTextOutput(JSON.stringify({
-      status: "success",
-      message: "Battery data updated"
+      'status': 'success',
+      'message': 'Data logged successfully',
+      'action': batteryFound ? 'updated' : 'created'
     })).setMimeType(ContentService.MimeType.JSON);
     
   } catch (error) {
+    // Return error response
     return ContentService.createTextOutput(JSON.stringify({
-      status: "error",
-      message: error.toString()
+      'status': 'error',
+      'message': error.toString()
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
-// Function to clear all battery data (called from sheet manually or ESP32)
 function doGet(e) {
-  if (e.parameter.action === "clear") {
-    const spreadsheet = SpreadsheetApp.openById(SHEET_ID);
-    let sheet = spreadsheet.getSheetByName(SHEET_NAME);
-    
-    if (sheet) {
-      const lastRow = sheet.getLastRow();
-      if (lastRow > 1) {
-        sheet.deleteRows(2, lastRow - 1);  // Keep headers
-      }
-    }
-    return ContentService.createTextOutput("Sheet cleared").setMimeType(ContentService.MimeType.TEXT);
-  }
-  
-  return ContentService.createTextOutput("Apps Script is ready").setMimeType(ContentService.MimeType.TEXT);
+  // Optional: Handle GET requests for testing
+  return ContentService.createTextOutput(JSON.stringify({
+    'status': 'online',
+    'message': 'Battery Logger API is running'
+  })).setMimeType(ContentService.MimeType.JSON);
 }

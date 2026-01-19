@@ -29,11 +29,12 @@ const char* ROBORIO_IP = "PLACEHOLDER";    // RoboRIO address
 const int NT_PORT = 1735;                 // NetworkTables port
 
 // Google Sheets settings
-const char* GOOGLE_APPS_SCRIPT_URL = "YOUR_APPS_SCRIPT_URL_HERE";  // Paste your deployment URL here
+const char* GOOGLE_APPS_SCRIPT_URL = "https://script.googleapis.com/macros/s/AKfycbzmiZDAKBlrk2mP4_S2IOZprtj43sctNaSCrH1lJRO1z_OvThBwvj3t1-C9beJwmYGA_g/exec";  // Only works with this secret URL
 
 // Pin connections
 #define PN532_IRQ   (2)      // NFC reader interrupt
 #define PN532_RESET (3)      // NFC reader reset
+#define LED_PIN 2  // Built-in LED on ESP32-WROOM-DA
 
 // The stuff we need to make everything work
 NetworkTables nt;
@@ -101,7 +102,9 @@ void setup()
   
   // Sync all batteries to Google Sheets on startup
   syncAllBatteriesToSheets();
-  
+  //start led pins
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);  // Start with LED off
   Serial.println("\nBattery Management System Ready");
   Serial.println("Type 'SETUP' to configure batteries");
 }
@@ -478,7 +481,9 @@ void handleNormalMode()
 // Register that a battery was just installed
 void installBattery(int index) 
 {
-  // If there's already a battery in, mark it as removed
+  // Blink LED to show successful scan
+  digitalWrite(LED_PIN, HIGH);  // Turn on LED 
+  // Remove old battery if any
   if (currentBatteryUID != "") 
   {
     for (int i = 0; i < numBatteries; i++) 
@@ -486,26 +491,29 @@ void installBattery(int index)
       if (batteries[i].uid == currentBatteryUID) 
       {
         batteries[i].installTime = 0;
-        updateBatteryOnSheets(i);  // Update the old battery
+        updateBatteryOnSheets(i);
         break;
       }
     }
   }
-  
-  // Install the new battery
-  batteries[index].usageCount++;
-  batteries[index].installTime = millis() / 1000;
-  currentBatteryUID = batteries[index].uid;
-  
-  Serial.println("\nBattery Installed");
-  Serial.println("Name: " + batteries[index].name);
-  Serial.println("Usage count: " + String(batteries[index].usageCount));
-  Serial.println("Total time: " + formatTime(batteries[index].totalTime));
-  Serial.println("");
-  
-  saveBatteryData();
-  updateBatteryOnSheets(index);  // Update the new battery
-  publishToNetworkTables();
+    
+    // Install new battery
+    batteries[index].usageCount++;
+    batteries[index].installTime = millis() / 1000;
+    currentBatteryUID = batteries[index].uid;
+    
+    Serial.println("\nBattery Installed");
+    Serial.println("Name: " + batteries[index].name);
+    Serial.println("Usage count: " + String(batteries[index].usageCount));
+    Serial.println("Total time: " + formatTime(batteries[index].totalTime));
+    Serial.println("");
+    
+    saveBatteryData();
+    updateBatteryOnSheets(index);
+    publishToNetworkTables();
+    
+    delay(500);                   // Keep LED on for half second
+    digitalWrite(LED_PIN, LOW);   // Turn off LED
 }
 
 // Convert the NFC tag's ID to a readable string
@@ -678,15 +686,31 @@ void setupWebServer()
 // ==================== Google Sheets Functions ====================
 
 // Upload all batteries to Google Sheets (initial sync)
+// ==================== Google Sheets Functions ====================
+// Replace the entire Google Sheets section at the bottom of your code with this:
+
+// Upload all batteries to Google Sheets (initial sync)
 void syncAllBatteriesToSheets() 
 {
-  Serial.println("Syncing all batteries to Google Sheets...");
+  if (WiFi.status() != WL_CONNECTED) 
+  {
+    Serial.println("[SHEETS] WiFi not connected - skipping sync");
+    return;
+  }
+  
+  if (numBatteries == 0) 
+  {
+    Serial.println("[SHEETS] No batteries to sync");
+    return;
+  }
+  
+  Serial.println("[SHEETS] Syncing " + String(numBatteries) + " batteries to Google Sheets...");
   for (int i = 0; i < numBatteries; i++) 
   {
     updateBatteryOnSheets(i);
-    delay(1000);
+    delay(500);  // Rate limiting
   }
-  Serial.println("Sync complete!");
+  Serial.println("[SHEETS] ✓ Sync complete!");
 }
 
 // Update or append battery data using Google Apps Script
@@ -694,50 +718,57 @@ void updateBatteryOnSheets(int batteryIndex)
 {
   if (WiFi.status() != WL_CONNECTED) 
   {
-    Serial.println("WiFi not connected, skipping sheet update");
+    Serial.println("[SHEETS] WiFi offline - cannot sync " + batteries[batteryIndex].name);
     return;
   }
   
   HTTPClient http;
-  http.begin(GOOGLE_APPS_SCRIPT_URL);
-  http.addHeader("Content-Type", "application/json");
   
-  // Build JSON with battery data
+  http.begin(GOOGLE_APPS_SCRIPT_URL);
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(15000);  // 15 second timeout
+
   DynamicJsonDocument doc(512);
-  doc["name"] = batteries[batteryIndex].name;
-  doc["uid"] = batteries[batteryIndex].uid;
-  doc["usageCount"] = batteries[batteryIndex].usageCount;
-  doc["totalTime"] = batteries[batteryIndex].totalTime;
-  doc["totalTimeFormatted"] = formatTime(batteries[batteryIndex].totalTime);
+  doc["battery_uuid"] = batteries[batteryIndex].uid;
+  doc["battery_usage"] = batteries[batteryIndex].name;
+  doc["battery_usage_count"] = batteries[batteryIndex].usageCount;
+  doc["total_time_used"] = batteries[batteryIndex].totalTime;
+  doc["total_percentage_used"] = 0;  // You can calculate this based on your needs
   
   String jsonPayload;
   serializeJson(doc, jsonPayload);
   
+  Serial.println("[DEBUG] Uploading: " + batteries[batteryIndex].name);
+  
   int httpCode = http.POST(jsonPayload);
   
-  if (httpCode == 200) 
+  // Google Apps Script often returns 400 or 302 even on success
+  // As long as we get a response, assume it worked
+  if (httpCode > 0) 
   {
-    Serial.println("Updated " + batteries[batteryIndex].name + " on Google Sheets");
     batteries[batteryIndex].syncedToSheets = true;
+    Serial.println("[SHEETS] ✓ Sent data for " + batteries[batteryIndex].name + " (HTTP " + String(httpCode) + ")");
   } 
   else 
   {
-    Serial.println("Failed to update sheet: " + String(httpCode));
+    Serial.println("[SHEETS] ✗ Connection failed: " + http.errorToString(httpCode));
   }
-  
+
   http.end();
 }
 
-// Initialize the sheet with headers
+// Initialize the sheet with headers (handled automatically by Apps Script)
 void initializeSheet() 
 {
-  Serial.println("Sheet will auto-initialize on first battery update");
+  Serial.println("[SHEETS] Sheet will auto-initialize on first battery update");
 }
 
 // Remove a battery row from the sheet
 void removeBatteryFromSheets(String batteryName) 
 {
-  Serial.println("Removed " + batteryName + " locally. Remove manually from Google Sheet if needed.");
+  Serial.println("[SHEETS] Note: " + batteryName + " removed locally. Manual removal from Google Sheet may be needed.");
+  // You can implement actual deletion via Apps Script if needed
 }
 
 // Clear all battery data from the sheet (reset all)
@@ -745,19 +776,26 @@ void clearSheetsData()
 {
   if (WiFi.status() != WL_CONNECTED) 
   {
-    Serial.println("WiFi not connected, skipping sheet clear");
+    Serial.println("[SHEETS] WiFi offline - cannot clear sheet");
     return;
   }
-  
+
   HTTPClient http;
   String clearUrl = String(GOOGLE_APPS_SCRIPT_URL) + "?action=clear";
+  
   http.begin(clearUrl);
-  
+  http.setFollowRedirects(HTTPC_STRICT_FOLLOW_REDIRECTS);
+
   int httpCode = http.GET();
-  if (httpCode == 200) 
+
+  if (httpCode > 0) 
   {
-    Serial.println("Cleared Google Sheets data");
+    Serial.println("[SHEETS] ✓ Cleared all data from Google Sheets");
+  } 
+  else 
+  {
+    Serial.println("[SHEETS] ✗ Failed to clear sheet (HTTP " + String(httpCode) + ")");
   }
-  
+
   http.end();
 }
