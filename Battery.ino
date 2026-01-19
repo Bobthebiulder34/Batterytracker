@@ -29,7 +29,7 @@ const char* ROBORIO_IP = "PLACEHOLDER";    // RoboRIO address
 const int NT_PORT = 1735;                 // NetworkTables port
 
 // Google Sheets settings
-const char* GOOGLE_APPS_SCRIPT_URL = "https://script.googleapis.com/macros/s/AKfycbzmiZDAKBlrk2mP4_S2IOZprtj43sctNaSCrH1lJRO1z_OvThBwvj3t1-C9beJwmYGA_g/exec";  // Only works with this secret URL
+const char* GOOGLE_APPS_SCRIPT_URL = "your app url";  // Only works with this secret URL
 
 // Pin connections
 #define PN532_IRQ   (2)      // NFC reader interrupt
