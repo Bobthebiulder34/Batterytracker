@@ -30,7 +30,7 @@ const int NT_PORT = 1735;                 // NetworkTables port
 
 // Google Sheets settings
 const char* GOOGLE_APPS_SCRIPT_URL = "your app url";  // Only works with this secret URL
-
+// (replace with your actual Google Apps Script URL example:https://script.google.com/macros/s/AKfycbwRuJsgjrJhxMN7T3fVYPWsoHHo0Lf131n6oyqt4PW6/dev)
 // Pin connections
 #define PN532_IRQ   (2)      // NFC reader interrupt
 #define PN532_RESET (3)      // NFC reader reset
