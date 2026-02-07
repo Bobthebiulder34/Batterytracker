@@ -64,6 +64,9 @@ enum SetupSubMode { MENU, RESET_ALL, RESET_SOME, ADD_BATTERIES, ADD_REMOVE };
 Mode currentMode = NORMAL;
 SetupSubMode setupSubMode = MENU;
 
+// PWM settings
+const int PWM_PIN = 5; // Define the PWM pin
+
 void setup() 
 {
   // Get serial communication going for debugging and commands
@@ -107,6 +110,8 @@ void setup()
   digitalWrite(LED_PIN, LOW);  // Start with LED off
   Serial.println("\nBattery Management System Ready");
   Serial.println("Type 'SETUP' to configure batteries");
+  
+  pinMode(PWM_PIN, OUTPUT); // Set PWM pin as output
 }
 
 void loop() 
@@ -798,4 +803,10 @@ void clearSheetsData()
   }
 
   http.end();
+}
+
+// Send PWM signal to RoboRIO
+void sendPWMData(int batteryIndex) {
+    int pwmValue = map(batteries[batteryIndex].usageCount, 0, 100, 0, 255); // Map usage count to PWM range
+    analogWrite(PWM_PIN, pwmValue); // Send PWM signal to RoboRIO
 }
